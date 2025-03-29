@@ -845,6 +845,10 @@ def main():
 
     os.environ["SCALE_FACTOR"] = ""
 
+    # Initialize with None as default
+    key_embds = None
+    value_embds = None
+
     if use_cached_embd:
         # We load the pre-computed version stored on the disk rather
         # than computing them on the fly to make things faster

@@ -98,16 +98,19 @@ def get_kb_embd(
             precomputed_base_embd=np.stack([key_embds[indices], value_embds[indices]]),
         )
     elif kb_dict:
-        if len(indices.shape) == 2:
+        # Convert indices to numpy array if it's a list
+        indices_array = np.array(indices)
+        
+        if len(indices_array.shape) == 2:
             # Sampling batch of multi entities
             train_set_key, train_set_val = [], []
-            for indices_row in indices.T:
+            for indices_row in indices_array.T:
                 _train_set_key, _train_set_val = kb_to_embd(kb_encoder, kb_dict=[kb_dict[i] for i in indices_row])
                 (train_set_key.append(_train_set_key),)
                 train_set_val.append(_train_set_val)
             train_set_key = torch.stack(train_set_key, 1)
             train_set_val = torch.stack(train_set_val, 1)
-        elif len(indices.shape) == 1:
+        elif len(indices_array.shape) == 1:
             train_set_key, train_set_val = kb_to_embd(kb_encoder, kb_dict=[kb_dict[i] for i in indices])
     return train_set_key, train_set_val
 

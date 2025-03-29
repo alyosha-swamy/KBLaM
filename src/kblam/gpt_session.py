@@ -9,7 +9,7 @@ from azure.identity import (
     TokenCachePersistenceOptions,
     get_bearer_token_provider,
 )
-from openai import AzureOpenAI
+from openai import AzureOpenAI, OpenAI
 
 valid_models = ["gpt-4o", "ada-embeddings", "text-embedding-3-large"]
 
@@ -28,21 +28,47 @@ class GPT:
         frequency_penalty: int = 0,
         presence_penalty: int = 0,
         seed: int = None,
+        use_openrouter: bool = False,
+        api_key: str = None,
     ):
         if model_name not in valid_models:
             raise ValueError(
                 f"Invalid model: {model_name}. Valid models are: {valid_models}"
             )
 
-        token_provider = get_bearer_token_provider(
-            self._get_credential(), "https://cognitiveservices.azure.com/.default"
-        )
+        # OpenRouter integration
+        self.use_openrouter = use_openrouter
+        
+        if use_openrouter:
+            # Using OpenRouter API
+            if not api_key:
+                # Get API key from environment variable if not provided
+                api_key = os.environ.get("OPENROUTER_API_KEY")
+                if not api_key:
+                    raise ValueError("OpenRouter API key must be provided or set in OPENROUTER_API_KEY environment variable")
+            
+            self.OA_client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=api_key,
+            )
+            # Map model names to OpenRouter equivalents
+            self.model_mapping = {
+                "gpt-4o": "openai/gpt-4o",
+                "text-embedding-3-large": "openai/text-embedding-3-large",
+                "ada-embeddings": "openai/text-embedding-ada-002"
+            }
+        else:
+            # Original Azure OpenAI implementation
+            token_provider = get_bearer_token_provider(
+                self._get_credential(), "https://cognitiveservices.azure.com/.default"
+            )
 
-        self.OA_client = AzureOpenAI(
-            azure_endpoint=endpoint_url,
-            api_version=api_version,
-            azure_ad_token_provider=token_provider,
-        )
+            self.OA_client = AzureOpenAI(
+                azure_endpoint=endpoint_url,
+                api_version=api_version,
+                azure_ad_token_provider=token_provider,
+            )
+            self.model_mapping = {}
 
         self.max_retries = max_retries
         self.system_msg = system_msg
@@ -88,8 +114,11 @@ class GPT:
 
     def api_call_chat(self, messages: list[dict]) -> str | None:
         for _ in range(self.max_retries):
+            # Use different model name based on whether we're using OpenRouter
+            model_to_use = self.model_mapping.get(self.model_name, self.model_name) if self.use_openrouter else self.model_name
+            
             completion = self.OA_client.chat.completions.create(
-                model=self.model_name,
+                model=model_to_use,
                 messages=messages,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
@@ -104,8 +133,11 @@ class GPT:
 
     def _api_call_embedding(self, text: str) -> list[float] | None:
         for _ in range(self.max_retries):
+            # Use different model name based on whether we're using OpenRouter
+            model_to_use = self.model_mapping.get(self.model_name, self.model_name) if self.use_openrouter else self.model_name
+            
             embedding = self.OA_client.embeddings.create(
-                input=text, model=self.model_name
+                input=text, model=model_to_use
             )
             if embedding:
                 return embedding.data[0].embedding
@@ -158,13 +190,28 @@ def parser_args():
         type=str,
         help="Endpoint URL for the model",
     )
+    parser.add_argument(
+        "--use_openrouter",
+        action="store_true",
+        help="Use OpenRouter API instead of Azure OpenAI",
+    )
+    parser.add_argument(
+        "--openrouter_api_key",
+        type=str,
+        help="OpenRouter API key",
+    )
 
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parser_args()
-    gpt = GPT(args.model_name, args.endpoint_url)
+    gpt = GPT(
+        args.model_name, 
+        args.endpoint_url,
+        use_openrouter=args.use_openrouter,
+        api_key=args.openrouter_api_key
+    )
     response = gpt.generate_embedding(args.prompt)
 
     assert response is not None

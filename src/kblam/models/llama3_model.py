@@ -44,12 +44,10 @@ from transformers.models.llama.modeling_llama import (
     _CONFIG_FOR_DOC,
     LLAMA_INPUTS_DOCSTRING,
     LLAMA_START_DOCSTRING,
-    LlamaDynamicNTKScalingRotaryEmbedding,
-    LlamaLinearScalingRotaryEmbedding,
     LlamaMLP,
     LlamaPreTrainedModel,
     LlamaRMSNorm,
-    LlamaRotaryEmbedding,
+    LlamaRotaryEmbedding as TransformersLlamaRotaryEmbedding,
     apply_rotary_pos_emb,
     repeat_kv,
 )
@@ -60,7 +58,9 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 
+from kblam.models.custom_rotary import LlamaDynamicNTKScalingRotaryEmbedding, LlamaLinearScalingRotaryEmbedding
 from kblam.models.kblam_config import KBLaMConfig
+from kblam.models.llama_implementations import LlamaRotaryEmbedding
 
 logger = logging.get_logger(__name__)
 
@@ -120,7 +120,7 @@ class KblamLlamaAttention(nn.Module):
     def _init_rope(self):
         if self.config.rope_scaling is None:
             self.rotary_emb = LlamaRotaryEmbedding(
-                self.head_dim,
+                dim=self.head_dim,
                 max_position_embeddings=self.max_position_embeddings,
                 base=self.rope_theta,
             )
@@ -129,14 +129,14 @@ class KblamLlamaAttention(nn.Module):
             scaling_factor = self.config.rope_scaling["factor"]
             if scaling_type == "linear":
                 self.rotary_emb = LlamaLinearScalingRotaryEmbedding(
-                    self.head_dim,
+                    dim=self.head_dim,
                     max_position_embeddings=self.max_position_embeddings,
                     scaling_factor=scaling_factor,
                     base=self.rope_theta,
                 )
             elif scaling_type == "dynamic":
                 self.rotary_emb = LlamaDynamicNTKScalingRotaryEmbedding(
-                    self.head_dim,
+                    dim=self.head_dim,
                     max_position_embeddings=self.max_position_embeddings,
                     scaling_factor=scaling_factor,
                     base=self.rope_theta,
@@ -235,9 +235,11 @@ class KblamLlamaAttention(nn.Module):
             bsz, q_len, self.num_key_value_heads, self.head_dim
         ).transpose(1, 2)
 
-        cos, sin = self.rotary_emb(value_states, position_ids)
+        # Get cos and sin embeddings using appropriate seq_len instead of position_ids
+        seq_len = value_states.shape[2]
+        cos, sin = self.rotary_emb(value_states, seq_len)
         query_states, key_states = apply_rotary_pos_emb(
-            query_states, key_states, cos, sin
+            query_states, key_states, cos, sin, position_ids
         )
 
         if past_key_value is not None:
@@ -414,10 +416,14 @@ LLAMA_ATTENTION_CLASSES = {
 
 
 class LlamaDecoderLayer(nn.Module):
-    def __init__(self, config: LlamaConfig, layer_idx: int):
+    def __init__(self, config: LlamaConfig, layer_idx: Optional[int] = None):
         super().__init__()
         self.hidden_size = config.hidden_size
-
+        
+        # Set default _attn_implementation if it doesn't exist
+        if not hasattr(config, "_attn_implementation"):
+            config._attn_implementation = "eager"
+        
         self.self_attn = LLAMA_ATTENTION_CLASSES[config._attn_implementation](
             config=config, layer_idx=layer_idx
         )
