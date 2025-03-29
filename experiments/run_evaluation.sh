@@ -3,7 +3,7 @@
 # Default parameters
 MODEL_PATH="/ephemeral/KBLaM/experiments/output/stage1_lr_0.0001KBTokenLayerFreq3UseOutlier1UseDataAugKeyFromkey_all-MiniLM-L6-v2_qa_kb_phi3_600"
 DATASET_PATH="/ephemeral/KBLaM/datasets/qa_kb/qa_kb.json"
-HF_TOKEN="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"
+HF_TOKEN=""  # No default token - must be provided by user
 NUM_EXAMPLES=100
 OUTPUT_FILE="evaluation_results.json"
 HF_MODEL_SPEC="microsoft/Phi-3-mini-4k-instruct"
@@ -15,7 +15,7 @@ show_help() {
   echo "Options:"
   echo "  --model_path PATH      Path to the trained model (default: $MODEL_PATH)"
   echo "  --dataset_path PATH    Path to the test dataset (default: $DATASET_PATH)"
-  echo "  --hf_token TOKEN       HuggingFace token (default: $HF_TOKEN)"
+  echo "  --hf_token TOKEN       HuggingFace token (REQUIRED)"
   echo "  --num_examples NUM     Number of examples to evaluate (default: $NUM_EXAMPLES)"
   echo "  --output_file FILE     Output file for results (default: $OUTPUT_FILE)"
   echo "  --hf_model_spec MODEL  Base HuggingFace model (default: $HF_MODEL_SPEC)"
@@ -65,6 +65,13 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Check if HF_TOKEN is provided
+if [ -z "$HF_TOKEN" ]; then
+  echo "Error: HuggingFace token (--hf_token) is required"
+  show_help
+  exit 1
+fi
 
 # Run the evaluation script
 python3 /ephemeral/KBLaM/experiments/evaluate_model.py \
